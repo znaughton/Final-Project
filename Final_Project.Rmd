@@ -1,0 +1,724 @@
+---
+title: "Final Project"
+author: "Monzer Sophie Zack"
+date: "2024-05-14"
+output: 
+  html_document:
+    toc: True
+bibliography: references.bib
+---
+
+
+```{r}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("treeio")
+BiocManager::install("ggtreeExtra")
+```
+
+
+```{r}
+# Loading all the libraries
+library(tidyverse)
+library(knitr)
+library(ggtree)
+library(TDbook) #A Companion Package for the Book "Data Integration, Manipulation and Visualization of Phylogenetic Trees" by Guangchuang Yu (2022, ISBN:9781032233574).
+library(ggimage)
+library(rphylopic)
+library(treeio)
+library(tidytree)
+library(ape)
+library(TreeTools)
+library(phytools)
+library(ggnewscale)
+library(ggtreeExtra)
+library(ggstar)
+library(DT)
+library(plotly)
+```
+
+
+# Abstract
+
+Using what was learned in Evolutionary Genomics we analyzed bacterium diversity and evolutionary lineage at a specific site in Yellowstone National Park. We also looked and diversity, behavior and evolutionary lineage within the specific phylum Gemmatimonadota.
+
+# Motovating Reasons 
+
+This report is partly a demonstration of the skills learned throughout the course. While I am not the most proficient in R, the data generated here can be applied to real world situations. I wanted to understand the diversity of bacteria that live in Yellowstone National Park as well as the populations and make up of those bacteria. I also wanted to learn more about a particular phylum of bacteria gemmatimonadota, specifically about their evolutionary lineage and their diversity within the phylum.
+
+# Introduction
+
+Lab group members Monzer, Sophie and Zack were assigned Yellowstone, a NEON site location, and subsequently were assigned to Gemmatimonadota, a phylum of bacteria. As mentioned, Yellowstone National Park (YELL) is a terrestrial NEON site, that is located in Bozeman, MT. Yellowstone consists of rolling hills,  and is characterized by a pine-dominated forest with sage and grass wetlands. YELL is highly representative of a wildland area in NEON's Northern Rockies Domain (D12) and the trophic structure and community interactions are probably more representative of those that were widespread in the region before Euro-American influence than any other place in the Domain. Thus, the site offers a rare opportunity to understand interactions among climate, natural disturbance, ecosystem processes, and community structure in integrated terrestrial and aquatic systems that are representative of those of intact wildlands across the Domain. 
+  Gemmatimonadota are a phylum of bacteria established in the year 2003 after it was discovered in a sewage treatment system. They are a gram negative bacterium, can grow using both aerobic and anaerobic respiration, and studies show that they make up about 2% of soil bacterial communities. The phylum contains two classes: Gemmatimonadetes and Longimicrobia. As for where Gemmatimonadota are found, they are distributed in many natural habitats, but they seem to prefer drier soils as they are well adapted to live in low moisture environments. They make up about 2% of soil bacterial communities and have been identified as one of the top nine phyla found in soils; yet, there are currently only six cultured isolates. The phylum Gemmatimonadota contains two classes, Gemmatimonadetes and Longimicrobia. 
+  This project was done in concordance with the course Biology 476/676 Evolutionary Genomics & Bioinformatics taught by Professor Jeffrey Blanchard. This course introduces life science students to evolutionary genomics, bioinformatics, and data sciences. Through computer-based lab sessions, students gain skills in Unix command line, R, reproducible research, and cloud computing. These labs also cover DNA sequence searches, sequence alignment, variation detection, phylogenetics, comparative genomics, and genome visualization. The purpose of this final project was to apply the skills acquired in the course to a real-life scenario, specifically focusing on studying the assigned phylum Gemmatimonadota at the Yellowstone National Park site.
+
+
+# Methods
+
+In this project, we utilized the Posit Cloud and R Markdown to create graphs and tables to summarize the analyzed data. The NEON metagenome data, collected from the designated sources, underwent thorough analysis using R Studio and R Markdown to extract meaningful insights. Furthermore, we employed phylogeny to handle data downloaded from the Joint Genome Institute (JGI), specifically referencing the GOLD Study ID Gs0161344 for this project. 
+
+## This code was used to load the data:
+
+```{r}
+NEON_MAGs_Ind <- read_csv("data/NEON/GOLD_Study_ID_Gs0161344_NEON.csv") %>%
+  filter(`Genome Name` != "NEON combined assembly") 
+```
+```{r}
+NEON_MAGs_Ind_tax <- NEON_MAGs_Ind %>% 
+  separate(`GTDB-Tk Taxonomy Lineage`, c("Domain", "Phylum", "Class", "Order", "Family", "Genus"), "; ", remove = FALSE) 
+```
+
+
+```{r}
+NEON_MAGs <- read_csv("data/NEON/GOLD_Study_ID_Gs0161344_NEON_edArchaea.csv") %>% 
+  # remove columns that are not needed for data analysis
+  select(-c(`GOLD Study ID`, `Bin Methods`, `Created By`, `Date Added`)) %>% 
+  # create a new column with the Assembly Type
+  mutate("Assembly Type" = case_when(`Genome Name` == "NEON combined assembly" ~ `Genome Name`,
+                            TRUE ~ "Individual")) %>% 
+  mutate_at("Assembly Type", str_replace, "NEON combined assembly", "Combined") %>% 
+  separate(`GTDB-Tk Taxonomy Lineage`, c("Domain", "Phylum", "Class", "Order", "Family", "Genus"), "; ", remove = FALSE) %>% 
+  # Get rid of the the common string "Soil microbial communities from "
+  mutate_at("Genome Name", str_replace, "Terrestrial soil microbial communities from ", "") %>% 
+  # Use the first `-` to split the column in two
+  separate(`Genome Name`, c("Site","Sample Name"), " - ") %>% 
+  # Get rid of the the common string "S-comp-1"
+  mutate_at("Sample Name", str_replace, "-comp-1", "") %>%
+  # separate the Sample Name into Site ID and plot info
+  separate(`Sample Name`, c("Site ID","subplot.layer.date"), "_", remove = FALSE,) %>% 
+  # separate the plot info into 3 columns
+  separate(`subplot.layer.date`, c("Subplot", "Layer", "Date"), "-")
+```
+
+## This code was run to help filter the data:
+```{r}
+# Filters for Yellowstone
+NEON_MAGs_Yellow <- NEON_MAGs %>%
+  filter(`Site ID`=="YELL")
+```
+```{r}
+# Filters for Gemmatimonadota
+NEON_MAGs_Gemmatimonadota <-NEON_MAGs %>%
+  filter(Phylum=="Gemmatimonadota")
+```
+
+```{r}
+NEON_chemistry <- read_tsv("data/NEON/neon_plot_soilChem1_metadata.tsv") %>% 
+  # remove -COMP from genomicsSampleID
+  mutate_at("genomicsSampleID", str_replace, "-COMP", "") 
+```
+
+```{r}
+NEON_MAGs_metagenomes <- read_tsv("data/NEON/exported_img_data_Gs0161344_NEON.tsv") %>% 
+  rename(`Genome Name` = `Genome Name / Sample Name`) %>% 
+  filter(str_detect(`Genome Name`, 're-annotation', negate = T)) %>% 
+  filter(str_detect(`Genome Name`, 'WREF plot', negate = T)) 
+```
+```{r}
+ NEON_MAGs_metagenomes<- NEON_MAGs_metagenomes %>% 
+  # Get rid of the the common string "Soil microbial communities from "
+  mutate_at("Genome Name", str_replace, "Terrestrial soil microbial communities from ", "") %>% 
+  # Use the first `-` to split the column in two
+  separate(`Genome Name`, c("Site","Sample Name"), " - ") %>% 
+  # Get rid of the the common string "-comp-1"
+  mutate_at("Sample Name", str_replace, "-comp-1", "") %>%
+  # separate the Sample Name into Site ID and plot info
+  separate(`Sample Name`, c("Site ID","subplot.layer.date"), "_", remove = FALSE,) %>% 
+  # separate the plot info into 3 columns
+  separate(`subplot.layer.date`, c("Subplot", "Layer", "Date"), "-") 
+```
+
+
+```{r}
+NEON_Full <- NEON_MAGs%>%
+  left_join(NEON_chemistry, by = c("Sample Name" = "genomicsSampleID")) %>%
+  left_join(NEON_MAGs_metagenomes, by = "Sample Name")
+```
+
+
+## This Code Used to Generate Data Files for Sankey Plots
+
+```{r}
+NEON_MAGs_Sankey <- read_csv("data/NEON/GOLD_Study_ID_Gs0161344_NEON_edArchaea.csv") %>% 
+  # remove columns that are not needed for data analysis
+  select(-c(`GOLD Study ID`, `Bin Methods`, `Created By`, `Date Added`)) %>% 
+  # create a new column with the Assembly Type
+  mutate("Assembly Type" = case_when(`Genome Name` == "NEON combined assembly" ~ `Genome Name`,
+                            TRUE ~ "Individual")) %>% 
+  mutate_at("Assembly Type", str_replace, "NEON combined assembly", "Combined") %>% 
+  separate(`GTDB-Tk Taxonomy Lineage`, c("Domain", "Phylum", "Class", "Order", "Family", "Genus"), "; ", remove = FALSE) %>% 
+  # Get rid of the the common string "Soil microbial communities from "
+  mutate_at("Genome Name", str_replace, "Terrestrial soil microbial communities from ", "") %>% 
+  # Use the first `-` to split the column in two
+  separate(`Genome Name`, c("Site","Sample Name"), " - ") %>% 
+  # Get rid of the the common string "S-comp-1"
+  mutate_at("Sample Name", str_replace, "-comp-1", "") %>%
+  # separate the Sample Name into Site ID and plot info
+  separate(`Sample Name`, c("Site ID","subplot.layer.date"), "_", remove = FALSE,) %>% 
+  # separate the plot info into 3 columns
+  separate(`subplot.layer.date`, c("Subplot", "Layer", "Date"), "-") 
+```
+
+```{r}
+NEON_MAGs_ind_Sankey <- NEON_MAGs_Sankey %>% 
+  filter(`Assembly Type` == "Individual") 
+```
+
+```{r}
+NEON_MAGs_co_Sankey <- NEON_MAGs_Sankey %>% 
+  filter(`Assembly Type` == "Combined") 
+```
+
+```{r}
+# Select the GTDB Taxonomic lineage and separate into taxonomic levels
+sankey_data <- NEON_MAGs_co_Sankey %>% 
+  select(`GTDB-Tk Taxonomy Lineage`) %>% 
+  # NAs are likely Archaea
+  replace_na(list(`GTDB-Tk Taxonomy Lineage` = 'Archaea')) %>% 
+  # Pavian format requires p__ etc
+  separate(`GTDB-Tk Taxonomy Lineage`, c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Species"), "; ") 
+```
+
+```{r}
+# Fill in the NAs with the taxonomic the higher taxonomic level to the left
+sankey_data[] <- t(apply(sankey_data, 1, zoo::na.locf))
+
+# Put the data into a format that can be read by the Sankey App
+
+sankey_data <- sankey_data %>% 
+  unite(col = "classification", c(Domain, Phylum, Class, Order, Family, Genus, Species), sep='; ') %>% 
+  mutate_at("classification", str_replace, "Archaea", "d__Archaea") %>% 
+  mutate_at("classification", str_replace, "Bacteria", "d__Bacteria") %>%  
+  mutate_at("classification", str_replace, "; ", "|p__") %>% 
+  mutate_at("classification", str_replace, "; ", "|c__") %>% 
+  mutate_at("classification", str_replace, "; ", "|o__") %>% 
+  mutate_at("classification", str_replace, "; ", "|f__") %>% 
+  mutate_at("classification", str_replace, "; ", "|g__") %>% 
+  mutate_at("classification", str_replace, "; ", "|s__")  
+
+# Create format for Pavian with counts for each taxonomic level
+sankey_data_s <- sankey_data
+sankey_data_g <- sankey_data
+sankey_data_f <- sankey_data
+sankey_data_o <- sankey_data
+sankey_data_c <- sankey_data
+sankey_data_p <- sankey_data
+sankey_data_d <- sankey_data
+
+sankey_data_g$classification <- sub("\\|s__.*", "", sankey_data_g$classification)  
+sankey_data_f$classification <- sub("\\|g__.*", "", sankey_data_f$classification)  
+sankey_data_o$classification <- sub("\\|f__.*", "", sankey_data_o$classification)  
+sankey_data_c$classification <- sub("\\|o__.*", "", sankey_data_c$classification)  
+sankey_data_p$classification <- sub("\\|c__.*", "", sankey_data_p$classification)  
+sankey_data_d$classification <- sub("\\|p__.*", "", sankey_data_d$classification)  
+
+sankey_data_allTaxa <- bind_rows(sankey_data_s, sankey_data_g, sankey_data_f, sankey_data_o, sankey_data_c, sankey_data_p, sankey_data_d) %>% 
+  mutate(classification = as.factor(classification)) %>% 
+  count(classification) %>% 
+# rename for Pavian format
+  rename(`#SampleID` = `classification`) %>% 
+  rename(`Metaphlan2_Analysis` = `n`) 
+
+# Write file to input to Pavian Sankey
+write_tsv(sankey_data_allTaxa, "data/NEON/NEON_MAG_co_pavian.txt")
+
+```
+
+```{r}
+NEON_MAGs_ind_Gemmatimonadota <- NEON_MAGs_ind_Sankey %>% 
+  filter(Phylum == "Gemmatimonadota") 
+```
+
+```{r}
+sankey_data <- NEON_MAGs_ind_Gemmatimonadota %>% 
+  select(`GTDB-Tk Taxonomy Lineage`) %>% 
+  # NAs are likely Archaea
+  replace_na(list(`GTDB-Tk Taxonomy Lineage` = 'Archaea')) %>% 
+  # Pavian format requires p__ etc
+  separate(`GTDB-Tk Taxonomy Lineage`, c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Species"), "; ") 
+
+```
+
+```{r}
+# Fill in the NAs with the taxonomic the higher taxonomic level to the left
+sankey_data[] <- t(apply(sankey_data, 1, zoo::na.locf))
+
+# Put the data into a format that can be read by the Sankey App
+
+sankey_data <- sankey_data %>% 
+  unite(col = "classification", c(Domain, Phylum, Class, Order, Family, Genus, Species), sep='; ') %>% 
+  mutate_at("classification", str_replace, "Archaea", "d__Archaea") %>% 
+  mutate_at("classification", str_replace, "Bacteria", "d__Bacteria") %>%  
+  mutate_at("classification", str_replace, "; ", "|p__") %>% 
+  mutate_at("classification", str_replace, "; ", "|c__") %>% 
+  mutate_at("classification", str_replace, "; ", "|o__") %>% 
+  mutate_at("classification", str_replace, "; ", "|f__") %>% 
+  mutate_at("classification", str_replace, "; ", "|g__") %>% 
+  mutate_at("classification", str_replace, "; ", "|s__")  
+
+# Create format for Pavian with counts for each taxonomic level
+sankey_data_s <- sankey_data
+sankey_data_g <- sankey_data
+sankey_data_f <- sankey_data
+sankey_data_o <- sankey_data
+sankey_data_c <- sankey_data
+sankey_data_p <- sankey_data
+sankey_data_d <- sankey_data
+
+sankey_data_g$classification <- sub("\\|s__.*", "", sankey_data_g$classification)  
+sankey_data_f$classification <- sub("\\|g__.*", "", sankey_data_f$classification)  
+sankey_data_o$classification <- sub("\\|f__.*", "", sankey_data_o$classification)  
+sankey_data_c$classification <- sub("\\|o__.*", "", sankey_data_c$classification)  
+sankey_data_p$classification <- sub("\\|c__.*", "", sankey_data_p$classification)  
+sankey_data_d$classification <- sub("\\|p__.*", "", sankey_data_d$classification)  
+
+sankey_data_ind_GEM <- bind_rows(sankey_data_s, sankey_data_g, sankey_data_f, sankey_data_o, sankey_data_c, sankey_data_p, sankey_data_d) %>% 
+  mutate(classification = as.factor(classification)) %>% 
+  count(classification) %>% 
+# rename for Pavian format
+  rename(`#SampleID` = `classification`) %>% 
+  rename(`Metaphlan2_Analysis` = `n`) 
+
+# Write file to input to Pavian Sankey
+write_tsv(sankey_data_ind_GEM, "NEON_MAG_ind_pavian.txt")
+
+```
+
+
+```{r}
+NEON_MAGs_co_Gemmatimonadota <- NEON_MAGs_co_Sankey %>% 
+  filter(Phylum == "Gemmatimonadota") 
+
+```
+
+```{r}
+sankey_data <- NEON_MAGs_co_Gemmatimonadota %>% 
+  select(`GTDB-Tk Taxonomy Lineage`) %>% 
+  # NAs are likely Archaea
+  replace_na(list(`GTDB-Tk Taxonomy Lineage` = 'Archaea')) %>% 
+  # Pavian format requires p__ etc
+  separate(`GTDB-Tk Taxonomy Lineage`, c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Species"), "; ") 
+```
+
+```{r}
+# Fill in the NAs with the taxonomic the higher taxonomic level to the left
+sankey_data[] <- t(apply(sankey_data, 1, zoo::na.locf))
+
+# Put the data into a format that can be read by the Sankey App
+
+sankey_data <- sankey_data %>% 
+  unite(col = "classification", c(Domain, Phylum, Class, Order, Family, Genus, Species), sep='; ') %>% 
+  mutate_at("classification", str_replace, "Archaea", "d__Archaea") %>% 
+  mutate_at("classification", str_replace, "Bacteria", "d__Bacteria") %>%  
+  mutate_at("classification", str_replace, "; ", "|p__") %>% 
+  mutate_at("classification", str_replace, "; ", "|c__") %>% 
+  mutate_at("classification", str_replace, "; ", "|o__") %>% 
+  mutate_at("classification", str_replace, "; ", "|f__") %>% 
+  mutate_at("classification", str_replace, "; ", "|g__") %>% 
+  mutate_at("classification", str_replace, "; ", "|s__")  
+
+# Create format for Pavian with counts for each taxonomic level
+sankey_data_s <- sankey_data
+sankey_data_g <- sankey_data
+sankey_data_f <- sankey_data
+sankey_data_o <- sankey_data
+sankey_data_c <- sankey_data
+sankey_data_p <- sankey_data
+sankey_data_d <- sankey_data
+
+sankey_data_g$classification <- sub("\\|s__.*", "", sankey_data_g$classification)  
+sankey_data_f$classification <- sub("\\|g__.*", "", sankey_data_f$classification)  
+sankey_data_o$classification <- sub("\\|f__.*", "", sankey_data_o$classification)  
+sankey_data_c$classification <- sub("\\|o__.*", "", sankey_data_c$classification)  
+sankey_data_p$classification <- sub("\\|c__.*", "", sankey_data_p$classification)  
+sankey_data_d$classification <- sub("\\|p__.*", "", sankey_data_d$classification)  
+
+sankey_data_ind_GEM <- bind_rows(sankey_data_s, sankey_data_g, sankey_data_f, sankey_data_o, sankey_data_c, sankey_data_p, sankey_data_d) %>% 
+  mutate(classification = as.factor(classification)) %>% 
+  count(classification) %>% 
+# rename for Pavian format
+  rename(`#SampleID` = `classification`) %>% 
+  rename(`Metaphlan2_Analysis` = `n`) 
+
+# Write file to input to Pavian Sankey
+write_tsv(sankey_data_ind_GEM, "NEON_MAG_co_gem.txt")
+
+```
+
+```{r}
+NEON_MAGs_YELL <- NEON_MAGs %>%
+  filter(`Site ID`== "YELL")
+```
+
+```{r}
+sankey_data <- NEON_MAGs_YELL %>% 
+  select(`GTDB-Tk Taxonomy Lineage`) %>% 
+  # NAs are likely Archaea
+  replace_na(list(`GTDB-Tk Taxonomy Lineage` = 'Archaea')) %>% 
+  # Pavian format requires p__ etc
+  separate(`GTDB-Tk Taxonomy Lineage`, c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Species"), "; ") 
+
+```
+
+```{r}
+# Fill in the NAs with the taxonomic the higher taxonomic level to the left
+sankey_data[] <- t(apply(sankey_data, 1, zoo::na.locf))
+
+# Put the data into a format that can be read by the Sankey App
+
+sankey_data <- sankey_data %>% 
+  unite(col = "classification", c(Domain, Phylum, Class, Order, Family, Genus, Species), sep='; ') %>% 
+  mutate_at("classification", str_replace, "Archaea", "d__Archaea") %>% 
+  mutate_at("classification", str_replace, "Bacteria", "d__Bacteria") %>%  
+  mutate_at("classification", str_replace, "; ", "|p__") %>% 
+  mutate_at("classification", str_replace, "; ", "|c__") %>% 
+  mutate_at("classification", str_replace, "; ", "|o__") %>% 
+  mutate_at("classification", str_replace, "; ", "|f__") %>% 
+  mutate_at("classification", str_replace, "; ", "|g__") %>% 
+  mutate_at("classification", str_replace, "; ", "|s__")  
+
+# Create format for Pavian with counts for each taxonomic level
+sankey_data_s <- sankey_data
+sankey_data_g <- sankey_data
+sankey_data_f <- sankey_data
+sankey_data_o <- sankey_data
+sankey_data_c <- sankey_data
+sankey_data_p <- sankey_data
+sankey_data_d <- sankey_data
+
+sankey_data_g$classification <- sub("\\|s__.*", "", sankey_data_g$classification)  
+sankey_data_f$classification <- sub("\\|g__.*", "", sankey_data_f$classification)  
+sankey_data_o$classification <- sub("\\|f__.*", "", sankey_data_o$classification)  
+sankey_data_c$classification <- sub("\\|o__.*", "", sankey_data_c$classification)  
+sankey_data_p$classification <- sub("\\|c__.*", "", sankey_data_p$classification)  
+sankey_data_d$classification <- sub("\\|p__.*", "", sankey_data_d$classification)  
+
+sankey_data_ind_GEM <- bind_rows(sankey_data_s, sankey_data_g, sankey_data_f, sankey_data_o, sankey_data_c, sankey_data_p, sankey_data_d) %>% 
+  mutate(classification = as.factor(classification)) %>% 
+  count(classification) %>% 
+# rename for Pavian format
+  rename(`#SampleID` = `classification`) %>% 
+  rename(`Metaphlan2_Analysis` = `n`) 
+
+# Write file to input to Pavian Sankey
+write_tsv(sankey_data_ind_GEM, "NEON_MAG_YELL.txt")
+```
+
+
+## Preparing Code for Phylogenic Trees
+
+```{r}
+NEON_MAGs_Tree <- read_csv("data/NEON/GOLD_Study_ID_Gs0161344_NEON_2024_4_21.csv") %>% 
+  # remove columns that are not needed for data analysis
+  select(-c(`GOLD Study ID`, `Bin Methods`, `Created By`, `Date Added`, `Bin Lineage`)) %>% 
+  # create a new column with the Assembly Type
+  mutate("Assembly Type" = case_when(`Genome Name` == "NEON combined assembly" ~ `Genome Name`,
+                            TRUE ~ "Individual")) %>% 
+  mutate_at("Assembly Type", str_replace, "NEON combined assembly", "Combined") %>% 
+  mutate_at("GTDB-Tk Taxonomy Lineage", str_replace, "d__", "") %>%  
+  mutate_at("GTDB-Tk Taxonomy Lineage", str_replace, "p__", "") %>% 
+  mutate_at("GTDB-Tk Taxonomy Lineage", str_replace, "c__", "") %>% 
+  mutate_at("GTDB-Tk Taxonomy Lineage", str_replace, "o__", "") %>% 
+  mutate_at("GTDB-Tk Taxonomy Lineage", str_replace, "f__", "") %>% 
+  mutate_at("GTDB-Tk Taxonomy Lineage", str_replace, "g__", "") %>% 
+  mutate_at("GTDB-Tk Taxonomy Lineage", str_replace, "s__", "") %>%
+  separate(`GTDB-Tk Taxonomy Lineage`, c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Species"), ";", remove = FALSE) %>% 
+  mutate_at("Domain", na_if,"") %>% 
+  mutate_at("Phylum", na_if,"") %>% 
+  mutate_at("Class", na_if,"") %>% 
+  mutate_at("Order", na_if,"") %>% 
+  mutate_at("Family", na_if,"") %>% 
+  mutate_at("Genus", na_if,"") %>% 
+  mutate_at("Species", na_if,"") %>% 
+  
+  # Get rid of the the common string "Soil microbial communities from "
+  mutate_at("Genome Name", str_replace, "Terrestrial soil microbial communities from ", "") %>% 
+  # Use the first `-` to split the column in two
+  separate(`Genome Name`, c("Site","Sample Name"), " - ") %>% 
+  # Get rid of the the common string "S-comp-1"
+  mutate_at("Sample Name", str_replace, "-comp-1", "") %>%
+  # separate the Sample Name into Site ID and plot info
+  separate(`Sample Name`, c("Site ID","subplot.layer.date"), "_", remove = FALSE,) %>% 
+  # separate the plot info into 3 columns
+  separate(`subplot.layer.date`, c("Subplot", "Layer", "Date"), "-")
+
+```
+```{r}
+NEON_metagenomes <- read_tsv("data/NEON/exported_img_data_Gs0161344_NEON.tsv") %>% 
+  select(-c(`Domain`, `Sequencing Status`, `Sequencing Center`)) %>% 
+  rename(`Genome Name` = `Genome Name / Sample Name`) %>% 
+  filter(str_detect(`Genome Name`, 're-annotation', negate = T)) %>% 
+  filter(str_detect(`Genome Name`, 'WREF plot', negate = T)) 
+```
+```{r}
+NEON_metagenomes <- NEON_metagenomes %>% 
+  # Get rid of the the common string "Soil microbial communities from "
+  mutate_at("Genome Name", str_replace, "Terrestrial soil microbial communities from ", "") %>% 
+  # Use the first `-` to split the column in two
+  separate(`Genome Name`, c("Site","Sample Name"), " - ") %>% 
+  # Get rid of the the common string "-comp-1"
+  mutate_at("Sample Name", str_replace, "-comp-1", "") %>%
+  # separate the Sample Name into Site ID and plot info
+  separate(`Sample Name`, c("Site ID","subplot.layer.date"), "_", remove = FALSE,) %>% 
+  # separate the plot info into 3 columns
+  separate(`subplot.layer.date`, c("Subplot", "Layer", "Date"), "-") 
+
+```
+```{r}
+NEON_chemistry <- read_tsv("data/NEON/neon_plot_soilChem1_metadata.tsv") %>% 
+  # remove -COMP from genomicsSampleID
+  mutate_at("genomicsSampleID", str_replace, "-COMP", "") 
+
+```
+```{r}
+NEON_MAGs_metagenomes_chemistry <- NEON_MAGs %>% 
+  left_join(NEON_metagenomes, by = "Sample Name") %>% 
+  left_join(NEON_chemistry, by = c("Sample Name" = "genomicsSampleID")) %>% 
+  rename("label" = "Bin ID")
+```
+
+```{r}
+tree_arc <- read.tree("data/NEON/gtdbtk.ar53.decorated.tree")
+tree_bac <- read.tree("data/NEON/gtdbtk.bac120.decorated.tree")
+
+```
+
+```{r}
+# Make a vector with the internal node labels
+node_vector_bac = c(tree_bac$tip.label,tree_bac$node.label)
+
+# Search for your Phylum or Class to get the node
+grep("Gemmatimonadota", node_vector_bac, value = TRUE)
+```
+```{r}
+match(grep("Gemmatimonadota", node_vector_bac, value = TRUE), node_vector_bac)
+
+```
+```{r}
+# First need to preorder tree before extracting. N
+tree_bac_preorder <- Preorder(tree_bac)
+tree_Gemmatimonadota <- Subtree(tree_bac_preorder, 2485)
+```
+
+```{r}
+NEON_MAGs_metagenomes_chemistry_CLBJ <- NEON_MAGs_metagenomes_chemistry %>% 
+  filter(`Site ID.x` == "YELL") %>% 
+  filter(Domain == "Bacteria")
+```
+```{r}
+# Make a vector of the MAGs labels
+CLBJ_MAGs_label <- NEON_MAGs_metagenomes_chemistry_CLBJ$label
+```
+```{r}
+# Use appropriate Bacteria or Archaea tree to select your site MAG labels
+tree_bac_CLBJ_MAGs <-drop.tip(tree_bac,tree_bac$tip.label[-match(CLBJ_MAGs_label, tree_bac$tip.label)])
+```
+
+
+
+# Results
+
+## Yellowstone
+
+```{r}
+kable(
+project_groups <- read_tsv("data/NEON/project_groups.tsv") 
+)
+```
+
+Table 1:    This table shows the different phylums present at Yellowstone National Park as well as some information about them including genome size and gene count
+
+
+```{r}
+datatable(
+  NEON_MAGs_Ind_tax %>% 
+    select(c(`Genome Name`, `Class`)) %>%
+    filter(str_detect(`Genome Name`, 'YELL')) %>%
+    count(Class, sort = TRUE)
+)
+```
+
+Table 2:    This table shows the different Classes found in Yellowstone Nation Park as well as the number of times they were counted at that site represented by the value (n)
+
+```{r}
+NEON_MAGs_Yellow%>%
+  ggplot(aes(y=Phylum))+
+  geom_bar()+
+  labs(title = "Phylum Counts at Yellowstone National Park")
+```
+
+Figure 1:   This bar graph shows the different phylums present at Yellowstone NP and how many times they appeared in the collected samples
+
+```{r}
+NEON_MAGs_Yellow %>%   
+ggplot(aes(x = `Total Number of Bases`, y = `Phylum`)) +
+  geom_point()+
+  labs(title = "Phylum Size at Yellowstone National Park")
+```
+
+Figure 2:   This graph shows the various counts of each of the phylums located in Yellowstone NP and the number of bases in their genome. Since every count is shown more popular phylums will appear more.
+
+```{r}
+ggplotly(
+  ggplot(data = NEON_MAGs_Yellow, aes(x = `Gene Count`, y = `Scaffold Count`)) +
+    geom_point(aes(color = Phylum, shape = Phylum))+
+    labs(title = "Phylum Scaffold Count vs Gene Count")
+ )
+```
+
+Figure 3:   This interactive graph shows the relationship between the size of the scaffolds and the genes for each of the different phylum present at the site. The lower the scaffold count the higher the quality of the sample. 
+
+```{r}
+NEON_MAGs_Yellow %>% 
+ggplot(aes(x=`Gene Count`, y= `Bin Completeness`)) +
+  geom_point(aes(color = Phylum))+
+  labs(title = "Phylum Completeness vs Gene Count")
+```
+
+Figure 4:   This graph shows which phylum have missing single-copy gene markers (Bin Completeness) compared to the gene count. The higher the bin completeness the less missing single-copy gene markers.
+
+```{r}
+NEON_MAGs_Yellow %>% 
+  filter(is.na(Phylum) | is.na(Class) | is.na(Order) | is.na(Family) | is.na(Genus)) %>%
+ggplot(aes(x = `Bin Quality`)) +
+  geom_bar(position = position_dodge2(width = 0.9, preserve = "single")) +
+  coord_flip()+
+  labs(title = "Phylum Quality at Yellowstone National Park")
+
+```
+
+Figure 5:   This graph shows the number of High Quality (HQ) and Medium Quality (MQ) samples taken at Yellowstone NP
+
+```{r}
+ggtree(tree_bac_CLBJ_MAGs, layout="circular")  %<+%
+  NEON_MAGs_metagenomes_chemistry +
+  geom_point(mapping=aes(color=Phylum))+
+  labs(title = "Phylogenetic Tree for Yellowstone National Park")
+```
+
+Figure 6:   This figure shows the ancestry of each of the phylum present at Yellowstone National Park and how they evolved apart from each other.
+
+```{r}
+knitr::include_url("data/sankey-NEON_MAG_YELL.txt.html")
+```
+
+Figure 7:   Sankey Tree For the phylum present at Yellowstone National Park
+
+## Gemmatimonadota
+```{r}
+datatable(
+  NEON_MAGs_Gemmatimonadota %>%
+    select(c(`Site`,`GTDB-Tk Taxonomy Lineage`, `Gene Count`, `Total Number of Bases`, `Bin Quality`))
+  )
+```
+
+Table 3:    This table shows the sites where the bacterium Gemmatimonadota is present as well as how many samples were recovered from each site. Other information like gene and base count is also shown.
+
+```{r, fig.width=10, fig.height=10}
+NEON_MAGs_Gemmatimonadota %>%   
+ggplot(aes(x = Site, y = `GTDB-Tk Taxonomy Lineage`)) +
+  geom_point() +
+  coord_flip()+
+  theme(axis.text.x = element_text(angle=60, vjust=1, hjust=1))+
+  labs(title = "Gemmatimonadota Lineages at Each Site", y = "Lineages")
+```
+
+Figure 8:   This graph shows where each of the different lineages of gemmatimonadota are present at each site
+
+```{r}
+NEON_MAGs_Gemmatimonadota%>%
+  ggplot(aes(y=Site))+
+  geom_bar()+
+  labs(title= "Gemmatimonadota Counts at Each Site")
+```
+
+Figure 9:   This graph shows the total counts of gemmatimonadota at each site
+
+```{r}
+NEON_MAGs_Gemmatimonadota %>% 
+  filter(is.na(Phylum) | is.na(Class) | is.na(Order) | is.na(Family) | is.na(Genus)) %>%
+ggplot(aes(x = `Bin Quality`)) +
+  geom_bar(position = position_dodge2(width = 0.9, preserve = "single")) +
+  coord_flip()+
+  labs(title = "Gemmatimonadota Quality")
+
+```
+
+Figure 10:    This graph shows the number of High Quality (HQ) and Medium Quality (MQ) samples of gemmatimonadota taken at various sites.
+
+```{r}
+NEON_Gemmatimonadota <- NEON_Full%>%
+  filter(`Phylum` == "Gemmatimonadota")
+
+NEON_Gemmatimonadota %>%   
+ggplot(aes(x = `Total Number of Bases`, y = `Site.x`)) +
+  geom_point()+
+  labs(title = "Gemmatimonadota Base Size at Each Site", y = "Site")
+```
+
+Figure 11:    This graph shows the size of gemmatimonadota at each site
+
+```{r}
+knitr::include_url("data/sankey-NEON_MAG_ind_pavian.txt.html")
+```
+
+Figure 12:    Sankey Tree of the individual assemblies of Gemmatimonadota
+
+```{r}
+knitr::include_url("data/sankey-NEON_MAG_co_gem.txt.html")
+```
+
+Figure 13:    Sankey Tree of the combined assemblies of Gemmatimonadota
+
+```{r}
+ggtree(tree_Gemmatimonadota)  %<+%
+  NEON_MAGs_metagenomes_chemistry + 
+  geom_tiplab(size=2, hjust=-.1) +
+  xlim(0,20) +
+  geom_point(mapping=aes(color=`Ecosystem Subtype`)) +
+  labs(title = "Phylogenetic Tree of Gemmatimonadota")
+```
+
+Figure 14:    This figure shows the evolutionary tree of gemmatimonadota as well as which ecosystem each lineage was found in 
+
+```{r}
+NEON_Gemmatimonadota %>%   
+ggplot(aes(x = `soilTemp`, y = `Site.x`)) +
+  geom_boxplot()+
+  labs(title = "Soil Temperatures", x = "Soil Temperature", y = "Site")
+```
+
+Figure 15:    This graph shows the average soil temperatures in Celsius for each site where gemmatimonadota was found in. 
+
+```{r}
+ggplot(data = NEON_Gemmatimonadota, aes(x = `Ecosystem Subtype`, y = `soilTemp`)) +
+    geom_point(aes(color=Family))+
+  labs(title = "Soil Temperatures Expanded", y = "Soil Temperature")
+
+```
+
+Figure 16:    This graph shows the soil temperature for each sample as well as which ecosystem it was taken from. The family of gemmatimonadota for each sample is also shown.
+
+# Discussion
+
+## Yellowstone
+
+The results show that a particular phylum of bacteria seems to be present the most at Yellowstone NP (Figure 1). Actinobacteriota is found in most samples significantly more than any other phylum. Actinobacteriota also has a smaller base count compared to the others (Figure 2). Looking at the phylogenetic tree we can see that Actinobacteriota is very diverse in its own phylum (Figure 6). Its also interesting to see that Chloroflexota hasn't diverged as much from the last common ancestor shared between all the phylum. We wanted to analyze all of the phylum present in more detail and found that many of the samples were of medium quality (Figure 5). If you take a look at the scaffold count many are quiet high, which means they are of lower quality (Figure 3). To see if the larger the size of the bacterium the lower the quality we compared the two. We can see from the results that for some of the phylum the more genes present the higher the scaffold count. Proteobacteria for example follows an almost linear increase. Patescibacteria has the lowest scaffold count of any phylum, but it also has the fewest genes. Actinobacteriota has more samples with a lower scaffold count than the rest of the phylums. In general the more genes a bacterium has the higher the scaffold count and the lower the quality. We wanted to examine this further so we compared the completeness of each of the phylum to the gene count (Figure 4). This will show us if the reason why the quality is low is because as the gene count becomes larger more parts of the expected genome are missing. The results however don't show that. The samples with the smallest gene count are also the most incomplete. More analysis needs to be done to figure out why that is the case. 
+
+## Gemmatimonadota
+
+Taking a closer look at Gemmatimonadota we can see that it lives in a wide diversity of environments. The sites where the samples were found are spread all across the United States (Figure 8 and 9). This shows the bacterium isn't clustered in one specific region and can thrive nearly anywhere. There are more samples found in Utah compared to the other sites so maybe this could be where it is most successful. The quality of the samples taken across all the sites is almost evenly split with just a bit more being medium quality (Figure 10). Looking at Figure 11 you'll see a wide diversity in the size of genome across the sites. The Gemmatimonadota at Tucson Arizona have fewer base pairs than than the Gemmatimonadota at LBJ in Texas. Another interesting factor is that Gemmatimonadota doesn't have a preferred climate or temperature. The sites where it was found could be arid, dry, cold, hot, or wet (Figure 14 and 15). Looking at the phylogenetic tree in Figure 14 we can see that Gemmatimonadota was found most often in shrublands. Something interesting we found was that two of the samples 33000616338_25 and 3300060695_66 are closely related however one lives in the tundra while the other lives in a temperate forest. Looking at the soild temperatures for each of the sites in figure 16 you'll see that there is a massive difference between the two temperatures. We believe that because these two samples are closely related and they live in very different climates that Gemmatimonadota has evolved to be temperature resistant or highly adaptable. Further studies should be conducted such as placing one sample of Gemmatimonadota that lives in warm soil and placing it in colder soil then see if it survives or dies. 
+
+# Conclusion
+
+Seven unique phylum live in Yellowstone National Park with the most successful one appearing to be Actinobacteriota. This bacterium vary in genome size with the more successful Actinobacteriota having a smaller genome. We noticed a relationship with the larger the genome count the higher the scaffold count, which means the quality of the samples was lower. We investigated further to see if this was due to larger genomes being incomplete, however that ended up being not the case.
+
+Gemmatimonadota is found across various sites in the United States, and can live in a wide variety of ecosystem subtypes. Two closely related strains can even live in two very different climates which seems to suggest that temperature doesn't effect Gemmatimonadota as much as other bacterium. The diversity within Gemmatimonadota is also on par with other phylum, like the ones found in Yellowstone National Park.
+
+# Refrences 
+
+Yellowstone National Park NEON | NSF NEON | Open Data to Understand our Ecosystems. (n.d.). Retrieved April 7, 2024, from https://www.neonscience.org/field-sites/yell
+
+Mujakić, I., Piwosz, K., & Koblížek, M. (2022). Phylum Gemmatimonadota and Its Role in the Environment. Microorganisms, 10(1), 151. https://doi.org/10.3390/microorganisms10010151
+
